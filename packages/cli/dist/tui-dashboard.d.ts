@@ -1,0 +1,44 @@
+import type { AlexContext } from "@alex-ai/core";
+import { AgentLoop } from "@alex-ai/runtime";
+export declare class TuiDashboard {
+    private ctx;
+    private agent;
+    private terminal;
+    private palette;
+    private outputLines;
+    private toolCalls;
+    private input;
+    private focus;
+    private paletteQuery;
+    private paletteResults;
+    private paletteIndex;
+    private model;
+    private provider;
+    private step;
+    private maxSteps;
+    private status;
+    private running;
+    private history;
+    private lastError;
+    constructor(ctx: AlexContext, agent: AgentLoop, cwd: string);
+    private onTerminalOutput;
+    start(): void;
+    stop(): void;
+    handleKey(key: string): boolean;
+    private handleGlobalKey;
+    private handleInputKey;
+    private handleTerminalKey;
+    private handlePaletteKey;
+    private renderInputLine;
+    private renderTerminalInput;
+    private submitQuery;
+    render(): void;
+    private renderCompact;
+    private drawBorder;
+    private renderToolsPanel;
+    private renderOutputPanel;
+    private renderTerminal;
+    private renderStatus;
+    private renderPalette;
+}
+//# sourceMappingURL=tui-dashboard.d.ts.map

@@ -1,0 +1,17 @@
+{
+  "name": "@alex-ai/bridge-kilo",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "dependencies": {
+    "@alex-ai/core": "file:../../core",
+    "@alex-ai/tools": "file:../../tools"
+  },
+  "peerDependencies": {
+    "@kilocode/plugin": ">=7.2.22",
+    "@kilocode/sdk": ">=7.2.22"
+  }
+}

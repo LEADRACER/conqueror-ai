@@ -1,0 +1,3 @@
+import type { Skill } from "@alex-ai/core";
+export declare const creativeSkill: Skill;
+//# sourceMappingURL=index.d.ts.map

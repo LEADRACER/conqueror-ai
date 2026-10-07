@@ -1,0 +1,22 @@
+{
+  "name": "@alex-ai/unified",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "dependencies": {
+    "@alex-ai/core": "file:../../core",
+    "@alex-ai/providers": "file:../../providers",
+    "@alex-ai/runtime": "file:../../runtime",
+    "@alex-ai/skills": "file:../../skills",
+    "@alex-ai/tools": "file:../../tools"
+  }
+}

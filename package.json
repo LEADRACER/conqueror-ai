@@ -1,0 +1,17 @@
+{
+  "name": "alex-ai-root",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npx tsc -p packages/core/tsconfig.json && npx tsc -p packages/experience/tsconfig.json && npx tsc -p packages/tools/tsconfig.json && npx tsc -p packages/providers/tsconfig.json && npx tsc -p packages/skills/tsconfig.json && npx tsc -p packages/runtime/tsconfig.json && npx tsc -p packages/bridges/kilo/tsconfig.json && npx tsc -p packages/bridges/opencode/tsconfig.json && npx tsc -p packages/unified/tsconfig.json && npx tsc -p packages/cli/tsconfig.json",
+    "typecheck": "npx tsc --noEmit -p packages/core/tsconfig.json && npx tsc --noEmit -p packages/experience/tsconfig.json && npx tsc --noEmit -p packages/tools/tsconfig.json && npx tsc --noEmit -p packages/providers/tsconfig.json && npx tsc --noEmit -p packages/skills/tsconfig.json && npx tsc --noEmit -p packages/runtime/tsconfig.json && npx tsc --noEmit -p packages/bridges/kilo/tsconfig.json && npx tsc --noEmit -p packages/bridges/opencode/tsconfig.json && npx tsc --noEmit -p packages/unified/tsconfig.json && npx tsc --noEmit -p packages/cli/tsconfig.json",
+    "lint": "echo \"ESLint not configured\"",
+    "test": "tsc --noEmit",
+    "alex": "node packages/cli/dist/cli.js"
+  },
+  "dependencies": {}
+}

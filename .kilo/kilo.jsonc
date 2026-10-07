@@ -1,0 +1,32 @@
+{
+  "$schema": "https://app.kilo.ai/config.json",
+  "model": "kilo/kilo-auto/free",
+  "permission": {
+    "bash": {
+      "*": "allow"
+    },
+    "external_directory": "allow",
+    "read": {
+      "*": "allow"
+    },
+    "skill": "allow",
+    "edit": "allow"
+  },
+  "plugin": [
+    ["/root/Builds/Alex/packages/bridges/kilo/dist/index.js", {}]
+  ],
+  "skills": {
+    "urls": [
+      "https://github.com/nextlevelbuilder/ui-ux-pro-max-skill.git",
+      "https://github.com/emilkowalski/skill"
+    ]
+  },
+  "command": {
+    "alex": {
+      "description": "Run Alex, the multihanded universal agent",
+      "template": "Use the Alex plugin tools to complete this task: {{args}}",
+      "agent": "alex",
+      "subtask": true
+    }
+  }
+}

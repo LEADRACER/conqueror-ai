@@ -1,0 +1,16 @@
+{
+  "name": "@alex-ai/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "alex": "dist/cli.js"
+  },
+  "main": "dist/cli.js",
+  "dependencies": {
+    "@alex-ai/core": "file:../core",
+    "@alex-ai/providers": "file:../providers",
+    "@alex-ai/runtime": "file:../runtime",
+    "@alex-ai/skills": "file:../skills",
+    "@alex-ai/tools": "file:../tools"
+  }
+}
