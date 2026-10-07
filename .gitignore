@@ -1,1 +1,10 @@
-@alex-ai
+node_modules/
+*.local
+dist/
+*.log
+*.tsbuildinfo
+.vscode/
+.idea/
+.DS_Store
+.env
+.kilo/agent-manager.json
