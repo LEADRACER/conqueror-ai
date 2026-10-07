@@ -46,6 +46,26 @@ export class CommandPalette {
         },
       },
       {
+        id: "cmd.vscode.browse",
+        label: "Browse VS Code Extensions",
+        description: "Search and install VS Code extensions",
+        category: "VS Code",
+        action: null,
+      },
+      {
+        id: "cmd.vscode.list",
+        label: "List Installed VS Code Extensions",
+        description: "Show installed extensions via VS Code CLI",
+        category: "VS Code",
+        action: async () => {
+          const result = await this.ctx.callTool("vscode_list_installed", {});
+          if (typeof result === "object" && result !== null) {
+            return `Installed extensions:\n${result.output}`;
+          }
+          return String(result).slice(0, 500);
+        },
+      },
+      {
         id: "cmd.providers",
         label: "List Providers",
         description: "Show all registered providers",

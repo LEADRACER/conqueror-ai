@@ -17,10 +17,11 @@
 ## TUI Shortcuts
 - `Ctrl+P` — open command palette
 - `Ctrl+T` — focus terminal panel
+- `Ctrl+E` — open VS Code extension browser (search + install)
 - `Ctrl+L` — clear output
 - `Ctrl+Q` or `Ctrl+C` — quit
 - `Tab` — cycle between input and terminal
-- `Esc` — close command palette
+- `Esc` — close command palette / extensions browser
 
 ## Notes
 - Target: Node 22 (ESM, NodeNext module resolution, es2022 lib)
