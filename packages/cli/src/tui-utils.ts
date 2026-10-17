@@ -144,6 +144,7 @@ export class TerminalUtils {
 
     const titleLine = ` ${title} `;
     const innerWidth = width - 2;
+    // @ts-ignore
     let titleStart = x + 1;
     const titleSpaces = innerWidth - titleLine.length;
     if (titleSpaces > 0 && titleSpaces % 2 === 0) {

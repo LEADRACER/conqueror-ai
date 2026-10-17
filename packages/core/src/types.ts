@@ -107,6 +107,7 @@ export interface Provider {
       maxOutputTokens?: number;
       tools?: AnyTool[];
       stream?: boolean;
+      signal?: AbortSignal;
       onChunk?: (delta: { content?: string; reasoning?: string; toolCall?: ToolCall }) => void;
     }
   ): Promise<ProviderResponse>;

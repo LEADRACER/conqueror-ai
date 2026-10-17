@@ -37,7 +37,7 @@ export class Terminal {
       this.shellBuffer += data.toString();
       this.onOutput(data.toString());
     });
-    this.shell.on("exit", (code) => {
+    this.shell.on("exit", (_code) => {
       this.shell = null;
     });
   }

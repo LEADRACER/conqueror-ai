@@ -74,6 +74,7 @@ export class OpenAICompatibleProvider implements Provider {
       maxOutputTokens?: number;
       tools?: ToolDefinition[];
       stream?: boolean;
+      signal?: AbortSignal;
       onChunk?: (delta: { content?: string; reasoning?: string; toolCall?: ToolCall }) => void;
     }
   ): Promise<ProviderResponse> {
@@ -99,13 +100,14 @@ export class OpenAICompatibleProvider implements Provider {
     }
 
     if (opts.stream && opts.onChunk) {
-      return this.streamChat(url.toString(), headers, body, opts.onChunk);
+      return this.streamChat(url.toString(), headers, body, opts.onChunk, opts.signal);
     }
 
     const init: RequestInit = {
       method: "POST",
       headers,
       body: JSON.stringify(body),
+      ...(opts.signal ? { signal: opts.signal } : {}),
     };
 
     const resp = await fetch(url.toString(), init);
@@ -155,12 +157,14 @@ export class OpenAICompatibleProvider implements Provider {
     url: string,
     headers: Record<string, string>,
     body: Record<string, unknown>,
-    onChunk: (delta: { content?: string; reasoning?: string; toolCall?: ToolCall }) => void
+    onChunk: (delta: { content?: string; reasoning?: string; toolCall?: ToolCall }) => void,
+    signal?: AbortSignal
   ): Promise<ProviderResponse> {
     const init: RequestInit = {
       method: "POST",
       headers,
       body: JSON.stringify(body),
+      ...(signal ? { signal } : {}),
     };
     const resp = await fetch(url, init);
     if (!resp.ok) {

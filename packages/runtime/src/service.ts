@@ -61,8 +61,9 @@ export class OmnirouteService {
       env.OMNIROUTE_API_KEY = this.apiKey;
     }
 
-    this.process = spawn("npx", args, {
-      shell: true,
+    // resolve npx via PATH without a shell (avoids shell-injection concerns + DEP0190)
+    const npxBin = process.platform === "win32" ? "npx.cmd" : "npx";
+    this.process = spawn(npxBin, args, {
       env,
       stdio: ["ignore", "pipe", "pipe"],
       detached: true,

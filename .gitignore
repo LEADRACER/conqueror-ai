@@ -8,3 +8,5 @@ dist/
 .DS_Store
 .env
 .kilo/agent-manager.json
+
+*.tgz

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alex — Operations Console</title>
+<link rel="stylesheet" href="/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' rx='5' fill='%2311151d'/><path d='M7 16 12 7l5 9M9.2 13h5.6' stroke='%2379a8ff' stroke-width='1.8' fill='none' stroke-linecap='round'/></svg>">
+</head>
+<body>
+<div id="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <span class="brand-mark">A</span>
+      <div class="brand-text">
+        <div class="brand-name">ALEX</div>
+        <div class="brand-sub">operations console</div>
+      </div>
+    </div>
+    <nav id="nav"></nav>
+    <div class="sidebar-footer" id="sidebar-footer"></div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <button class="icon-btn" id="btn-nav-toggle" title="Toggle sidebar">☰</button>
+      <button class="cmd-pill" id="btn-palette">
+        <span class="dim">Search or jump to…</span>
+        <kbd>Ctrl K</kbd>
+      </button>
+      <div class="topbar-right">
+        <div class="status-pill" id="agent-status"><span class="dot dot-idle"></span><span>idle</span></div>
+        <div class="model-pill" id="model-pill"></div>
+        <button class="icon-btn" id="btn-theme" title="Toggle theme">◐</button>
+      </div>
+    </header>
+    <main class="workspace" id="workspace"></main>
+  </div>
+</div>
+
+<div class="palette-overlay hidden" id="palette-overlay">
+  <div class="palette">
+    <input id="palette-input" placeholder="Type a command…" autocomplete="off">
+    <div id="palette-results" class="palette-results"></div>
+  </div>
+</div>
+
+<div id="modal-root"></div>
+<div id="toast-root"></div>
+
+<script src="/app.js"></script>
+</body>
+</html>

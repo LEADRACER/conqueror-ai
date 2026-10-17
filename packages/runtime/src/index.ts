@@ -6,7 +6,7 @@ import type {
   ToolOutput,
 } from "@alex-ai/core";
 import { AlexContext } from "@alex-ai/core";
-import { OmnirouteProvider, OpenCodeProvider } from "@alex-ai/providers";
+import { OpenCodeProvider, OmnirouteProvider } from "@alex-ai/providers";
 import { allSkills } from "@alex-ai/skills";
 import { allTools } from "@alex-ai/tools";
 import { MemoryManager } from "@alex-ai/experience";
@@ -41,8 +41,12 @@ export class AgentLoop {
   private lastHistory: Message[] = [];
   private memoryManager: MemoryManager | null = null;
 
-  constructor(readonly ctx: AlexContext, readonly config: AgentConfig) {
-    this.dispatcher = new ToolDispatcher(ctx);
+  constructor(readonly ctx: AlexContext, readonly config: AgentConfig, dispatcher?: ToolDispatcher) {
+    this.dispatcher = dispatcher ?? new ToolDispatcher(ctx);
+  }
+
+  get memory(): MemoryManager | null {
+    return this.memoryManager;
   }
 
   static async createDefault(
@@ -53,7 +57,7 @@ export class AgentLoop {
     const ctx = new AlexContext(directory, directory);
 
     const merged: AgentConfig = {
-      provider: config.provider ?? "omniroute",
+      provider: config.provider ?? "opencode",
       model: config.model ?? "gpt-4o",
       maxSteps: config.maxSteps ?? 50,
       maxRetries: config.maxRetries ?? 3,
@@ -65,27 +69,20 @@ export class AgentLoop {
     if (config.apiKey !== undefined) merged.apiKey = config.apiKey;
     if (config.skills !== undefined) merged.skills = config.skills;
 
-    const omniOpts: {
-      baseURL: string;
-      apiKey?: string;
-      models: string[];
-    } = {
-      baseURL: merged.baseURL ?? "http://localhost:3000",
-      models: [merged.model],
-    };
-    if (merged.apiKey) {
-      omniOpts.apiKey = merged.apiKey;
+    const providerOpts: { baseURL?: string; apiKey?: string } = {};
+    if (merged.baseURL) {
+      providerOpts.baseURL = merged.baseURL;
     }
-    const provider = new OmnirouteProvider(omniOpts);
+    if (merged.apiKey) {
+      providerOpts.apiKey = merged.apiKey;
+    }
+    const provider = new OpenCodeProvider(providerOpts);
     ctx.providers.register(provider);
 
-    const ocOpts: { baseURL?: string } = {};
-    if (merged.baseURL) {
-      ocOpts.baseURL = merged.baseURL.replace(/\/v1$/, "");
-    }
-    const opencodeProvider = new OpenCodeProvider(ocOpts);
-    if (!ctx.providers.has("opencode")) {
-      ctx.providers.register(opencodeProvider);
+    if (merged.provider === "omniroute") {
+      ctx.providers.register(
+        new OmnirouteProvider({ baseURL: merged.baseURL ?? "http://localhost:3000", ...(merged.apiKey !== undefined ? { apiKey: merged.apiKey } : {}) })
+      );
     }
 
     for (const skill of allSkills) {
@@ -114,12 +111,17 @@ export class AgentLoop {
     opts?: {
       stream?: boolean;
       timeout?: number;
+      signal?: AbortSignal;
+      provider?: string;
+      model?: string;
       onChunk?: (delta: { content?: string; reasoning?: string; toolCall?: ToolCall }) => void;
     }
   ): Promise<Message[]> {
-    const provider = this.ctx.providers.get(this.config.provider);
+    const providerID = opts?.provider ?? this.config.provider;
+    const model = opts?.model ?? this.config.model;
+    const provider = this.ctx.providers.get(providerID);
     if (!provider) {
-      throw new Error(`Provider "${this.config.provider}" not registered`);
+      throw new Error(`Provider "${providerID}" not registered`);
     }
 
     const history: Message[] = [];
@@ -148,25 +150,39 @@ export class AgentLoop {
     const toolDefs: ToolDefinition[] = this.ctx.listTools();
     let steps = 0;
     const maxSteps = this.config.maxSteps ?? 50;
+    let usageTotal: { input: number; output: number } | undefined;
 
     const controller = new AbortController();
     const timeoutVal = opts?.timeout ?? 120000;
     const timeoutId = setTimeout(() => controller.abort(), timeoutVal);
+    const externalAbort = () => controller.abort();
+    if (opts?.signal) {
+      if (opts.signal.aborted) {
+        controller.abort();
+      } else {
+        opts.signal.addEventListener("abort", externalAbort);
+      }
+    }
 
     try {
       while (steps < maxSteps) {
+        if (controller.signal.aborted) {
+          throw new Error("Run aborted");
+        }
         steps++;
         const chatOpts: {
           model: string;
           tools: ToolDefinition[];
           stream?: boolean;
+          signal?: AbortSignal;
           onChunk?: (delta: { content?: string; reasoning?: string; toolCall?: ToolCall }) => void;
           temperature?: number;
           topP?: number;
           maxOutputTokens?: number;
         } = {
-          model: this.config.model,
+          model,
           tools: toolDefs,
+          signal: controller.signal,
         };
         if (opts?.stream) {
           chatOpts.stream = true;
@@ -179,6 +195,15 @@ export class AgentLoop {
         if (this.config.maxOutputTokens !== undefined) chatOpts.maxOutputTokens = this.config.maxOutputTokens;
 
         const resp = await provider.chat(history, chatOpts);
+
+        if (resp.usage) {
+          usageTotal = usageTotal
+            ? {
+                input: usageTotal.input + resp.usage.input,
+                output: usageTotal.output + resp.usage.output,
+              }
+            : { input: resp.usage.input, output: resp.usage.output };
+        }
 
         const assistantMsg: Message = {
           role: "assistant",
@@ -214,9 +239,20 @@ export class AgentLoop {
       }
     } finally {
       clearTimeout(timeoutId);
+      if (opts?.signal) {
+        opts.signal.removeEventListener("abort", externalAbort);
+      }
     }
 
     this.lastHistory = history;
+
+    const lastAssistant = [...history].reverse().find((m) => m.role === "assistant");
+    if (lastAssistant && usageTotal) {
+      lastAssistant.metadata = {
+        ...(lastAssistant.metadata ?? {}),
+        usage: usageTotal,
+      };
+    }
 
     if (this.memoryManager) {
       const finalAnswer = this.lastHistory.at(-1)?.content;

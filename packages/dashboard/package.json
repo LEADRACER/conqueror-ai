@@ -1,0 +1,25 @@
+{
+  "name": "@alex-ai/dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist", "ui"],
+  "dependencies": {
+    "@alex-ai/core": "file:../core",
+    "@alex-ai/experience": "file:../experience",
+    "@alex-ai/providers": "file:../providers",
+    "@alex-ai/runtime": "file:../runtime"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.9",
+    "typescript": "^5.8.2"
+  }
+}

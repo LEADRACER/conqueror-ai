@@ -4,7 +4,7 @@ import { Terminal } from "./tui-terminal.js";
 import { CommandPalette } from "./tui-palette.js";
 import { Style, TerminalUtils } from "./tui-utils.js";
 
-type Focus = "input" | "terminal" | "palette" | "extensions";
+type Focus = "input" | "terminal" | "palette" | "extensions" | "settings";
 const C = Style;
 
 interface ExtensionInfo {
@@ -26,12 +26,14 @@ export class TuiDashboard {
   private paletteResults: ReturnType<CommandPalette["search"]> = [];
   private paletteIndex = 0;
   private model = "gpt-4o";
-  private provider = "omniroute";
+  private provider = "opencode";
   private step = 0;
   private maxSteps = 50;
+  // @ts-ignore
   private status = "Ready";
   private running = false;
   private history: string[] = [];
+  // @ts-ignore
   private lastError = "";
   private extSearchQuery = "";
   private extResults: ExtensionInfo[] = [];
@@ -85,6 +87,11 @@ export class TuiDashboard {
     if (key === "\x03" || key === "\x11") {
       return false;
     }
+    if (key === "\x0f") {
+      this.focus = "settings";
+      this.render();
+      return true;
+    }
     if (key === "\x10") {
       this.focus = "palette";
       this.paletteQuery = "";
@@ -111,7 +118,34 @@ export class TuiDashboard {
       this.extResults = [];
       this.extSelectedIndex = 0;
       this.extLoading = false;
+      this.focus = "settings";
       this.render();
+      return true;
+    }
+    if (this.focus === "settings") {
+      if (key === "1") {
+        this.provider = "opencode";
+        this.focus = "input";
+        this.render();
+        this.renderSettings();
+        return true;
+      }
+      if (key === "2") {
+        this.provider = "omniroute";
+        this.focus = "input";
+        this.render();
+        this.renderSettings();
+        return true;
+      }
+      if (key === "3") {
+        this.provider = "openai";
+        this.focus = "input";
+        this.render();
+        this.renderSettings();
+        return true;
+      }
+      this.focus = "input";
+      this.renderSettings();
       return true;
     }
     if (this.focus === "input" && key === "\t") {
@@ -352,6 +386,7 @@ export class TuiDashboard {
 
   private renderInputLine(): void {
     const { cols } = TerminalUtils.size;
+    // @ts-ignore
     const inputWidth = Math.max(1, cols - 15);
     TerminalUtils.moveCursor(0, TerminalUtils.size.rows - 2);
     const display = this.input;
@@ -469,6 +504,12 @@ export class TuiDashboard {
     const used = 8 + display.length;
     process.stdout.write(" ".repeat(Math.max(0, cols - used - 1)));
     process.stdout.write(C.dim("│"));
+  }
+
+  private renderSettings(): void {
+    const { rows } = TerminalUtils.size;
+    TerminalUtils.moveCursor(0, rows - 3);
+    process.stdout.write(C.cyan("Settings: Provider = " + this.provider + "  |  Press 1-3 to change, Esc to return"));
   }
 
   private renderCompact(): void {
@@ -612,7 +653,6 @@ export class TuiDashboard {
     TerminalUtils.moveCursor(0, y);
     const status = C.dim("|");
     const model = C.green(this.model);
-    const provider = C.magenta(this.provider);
     const step = C.yellow("step " + this.step + "/" + this.maxSteps);
     const running = this.running ? C.red("running") : C.green("idle");
     let mode = "";
@@ -623,7 +663,7 @@ export class TuiDashboard {
     } else if (this.focus === "terminal") {
       mode = C.yellow(" [term] ");
     }
-    const statusText = provider + " " + model + " | " + step + " | " + running + mode;
+    const statusText = model + " | " + step + " | " + running + mode;
     process.stdout.write(
       status + " " + statusText + " ".repeat(Math.max(0, cols - statusText.length - 5)) + C.dim("|")
     );
