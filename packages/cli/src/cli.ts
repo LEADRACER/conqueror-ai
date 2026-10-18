@@ -71,7 +71,8 @@ function parseArgs(argv: string[]): CliOptions {
 }
 
 async function runWeb(opts: CliOptions): Promise<void> {
-  const port = Number.parseInt(opts.port ?? "3007", 10) || 3007;
+  const parsedPort = Number.parseInt(opts.port ?? "3007", 10);
+  const port = Number.isNaN(parsedPort) ? 3007 : parsedPort;
   let dash;
   try {
     dash = await startDashboard({

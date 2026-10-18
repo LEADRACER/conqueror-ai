@@ -564,7 +564,9 @@ async function handleConversations(
     return;
   }
   if (method === "POST" && !id) {
-    const conv = ensureConversation(app);
+    const body = await readBody(req);
+    const title = typeof body.title === "string" && body.title.trim() ? sanitizeText(body.title, 200) : undefined;
+    const conv = ensureConversation(app, undefined, title);
     sendJSON(res, 201, { conversation: conv });
     return;
   }
@@ -1133,7 +1135,10 @@ export function parsePlanOutput(answer: string): string[] {
   }
 
   for (const line of text.split("\n")) {
-    const stripped = line.replace(/^[\s\-*•\d.)\]]+/, "").trim();
+    // Fallback: only numbered or bulleted lines count as plan items.
+    const m = line.match(/^\s*(?:[-*•]|\d+[.)\]])\s+(.+)$/);
+    if (!m) continue;
+    const stripped = m[1]?.trim() ?? "";
     if (stripped.length >= 3 && !stripped.startsWith("{")) {
       out.push(stripped.slice(0, 300));
     }

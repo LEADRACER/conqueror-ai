@@ -117,14 +117,22 @@ export class RunManager {
    * can never finish — mark them failed at startup with an honest error.
    */
   private reapOrphans(): void {
+    let reaped = 0;
     for (const run of this.runs) {
       if (run.status === "running" || run.status === "waiting_approval" || run.status === "queued") {
         run.status = "failed";
         run.error = "interrupted: server restarted before completion";
         run.endedAt = new Date().toISOString();
+        this.gate.cancelForRun(run.id);
+        reaped++;
       }
     }
-    if (this.runs.some((r) => r.error === "interrupted: server restarted before completion")) {
+    // After reaping nothing can ever resolve them: fail-safe-cancel any
+    // leftover pending approvals (e.g. state saved between events).
+    for (const approval of this.gate.pending()) {
+      this.gate.decide(approval.id, false, true);
+    }
+    if (reaped > 0) {
       this.store.scheduleSave();
     }
   }

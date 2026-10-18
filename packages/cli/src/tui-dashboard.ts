@@ -182,20 +182,15 @@ export class TuiDashboard {
       return true;
     }
     if (this.focus === "settings") {
-      if (key === "1") {
-        this.pickProvider("opencode");
-        this.focus = "input";
-        return true;
-      }
-      if (key === "2") {
-        this.pickProvider("omniroute");
-        this.focus = "input";
-        return true;
-      }
-      if (key === "3") {
-        this.pickProvider("openai");
-        this.focus = "input";
-        return true;
+      const registered = this.ctx.providers.list().map((p) => p.id);
+      const idx = Number.parseInt(key, 10);
+      if (Number.isInteger(idx) && idx >= 1 && idx <= registered.length) {
+        const target = registered[idx - 1];
+        if (target) {
+          this.pickProvider(target);
+          this.focus = "input";
+          return true;
+        }
       }
       this.focus = "input";
       this.render();
@@ -587,7 +582,11 @@ export class TuiDashboard {
       });
     }
     if (this.focus === "settings") {
-      Panes.settingsOverlay(cols, rows, { provider: this.provider, reachable: this.modelReachable });
+      Panes.settingsOverlay(cols, rows, {
+        provider: this.provider,
+        providers: this.ctx.providers.list().map((p) => p.id),
+        reachable: this.modelReachable,
+      });
     }
 
     Panes.inputLine(rows - 2, cols, this.input, this.focus === "terminal");

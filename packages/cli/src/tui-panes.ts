@@ -31,6 +31,8 @@ export interface PaletteOverlayState {
 }
 
 export interface SettingsOverlayState {
+  /** registered provider ids, in registry order */
+  providers: string[];
   provider: string;
   reachable: boolean | null;
 }
@@ -215,11 +217,12 @@ export const Panes = {
     const lines = [
       C.bold("Settings — provider: " + s.provider) + "  " + conn,
       "",
-      "  " + C.cyan("1") + ") opencode   (built-in, expects OpenCode gateway :4000)",
-      "  " + C.cyan("2") + ") omniroute  (any OpenAI-compatible gateway, OMNIROUTE_URL)",
-      "  " + C.cyan("3") + ") openai     (direct OpenAI-compatible endpoint)",
+      ...s.providers.map((p, i) =>
+        "  " + C.cyan(String(i + 1)) + ") " + p +
+        (p === "opencode" ? "   (built-in gateway)" : p === "omniroute" && process.env.OMNIROUTE_URL ? "   (" + process.env.OMNIROUTE_URL + ")" : "")
+      ),
       "",
-      C.gray("1/2/3 pick + re-probe · Esc close"),
+      C.gray("1..9 pick + re-probe · Esc close"),
     ];
     TerminalUtils.moveCursor(x, y);
     process.stdout.write("+" + "-".repeat(w - 2) + "+");

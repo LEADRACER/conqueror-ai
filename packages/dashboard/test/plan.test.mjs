@@ -8,8 +8,10 @@ test("parses JSON plan output", () => {
 });
 
 test("falls back to bulleted/numbered lines", () => {
-  const out = parsePlanOutput("1. First step\n- Second step\n* Third step\nmust be at least three chars");
-  assert.deepEqual(out, ["First step", "Second step", "Third step", "must be at least three chars"]);
+  const out = parsePlanOutput("1. First step\n- Second step\n* Third step\nplain prose is not a task");
+  assert.deepEqual(out, ["First step", "Second step", "Third step"]);
+  assert.deepEqual(parsePlanOutput("• Bullet item here"), ["Bullet item here"]);
+  assert.deepEqual(parsePlanOutput("1) Paren numbered"), ["Paren numbered"]);
 });
 
 test("ignores nonsense and enforces reasonable limits", () => {

@@ -80,9 +80,14 @@ export class AgentLoop {
     const provider = new OpenCodeProvider(providerOpts);
     ctx.providers.register(provider);
 
-    if (merged.provider === "omniroute") {
+    if (!ctx.providers.has("omniroute") && (merged.provider === "omniroute" || process.env.OMNIROUTE_URL)) {
+      // "omniroute" is the generic OpenAI-compatible gateway id; the URL always
+      // follows OMNIROUTE_URL when set, per the documented provider contract.
       ctx.providers.register(
-        new OmnirouteProvider({ baseURL: merged.baseURL ?? "http://localhost:3000", ...(merged.apiKey !== undefined ? { apiKey: merged.apiKey } : {}) })
+        new OmnirouteProvider({
+          baseURL: process.env.OMNIROUTE_URL ?? merged.baseURL ?? "http://localhost:3000",
+          ...(merged.apiKey !== undefined ? { apiKey: merged.apiKey } : {}),
+        })
       );
     }
 
