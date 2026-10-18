@@ -23,7 +23,7 @@
 - Memory store: `~/.kilo/memory.json` via `MemoryManager` (also exposed through the console Memory view)
 - Approval gates: sensitive tools (shell, write/edit/delete file, http_request, vscode install/uninstall, subagent_start, opencode_run, browser_evaluate) pause runs server-side until approved in the Approvals view; the set is configurable in Settings → Models view
 - Workflow scheduler: interval-based (30s tick), runs steps as sequential agent runs; server timezone shown in the UI
-- OmniRoute integration: health/listing via `GET /v1/models` on the configured gateway; auto-start attempts `npx omniroute` unless `--no-auto-start`
+- OmniRoute integration: health/listing via `GET /v1/models` on the configured gateway; auto-start attempts `npx omniroute` unless `--no-auto-start`; the gateway URL always follows `OMNIROUTE_URL` (any OpenAI-compatible gateway works — the provider id "omniroute" just means "OpenAI-compatible")
 - Mission planning: "Plan" on a mission starts a planning run (`POST /api/missions/:id/plan`); completed plan runs are parsed (`{"tasks":["..."]}` JSON, numbered/bulleted fallback) into real tasks linked to the mission
 - Usage tracking: per-run token totals are attached by the agent loop to the final assistant message metadata and shown on runs/history
 - Context compaction: agent loop auto-compacts long histories — tool-result cap (default 8000 chars) plus token-budget-based dropping of oldest tool-call rounds (kept: system prompt, memory block, original request, recent turns; an honest `[context compacted: N step(s) elided]` stub marks the boundary). Policy via `AgentConfig.compact = { thresholdTokens (24k), keepRecentUnits (6), toolResultMaxChars (8000) }`; savings surface on run rows in the console

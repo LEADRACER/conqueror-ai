@@ -156,7 +156,7 @@ function truncate(text: string, maxLen: number): string {
 
 async function runOneShot(request: string, opts: CliOptions, config: Partial<AgentConfig>): Promise<void> {
   // Default to omniroute for one-shot tasks; auto-start unless disabled or OpenCode selected
-  if (!opts.useOpencode && opts.provider === undefined) {
+  if (!opts.useOpencode && (opts.provider === undefined || opts.provider === "omniroute")) {
     config.provider = "omniroute";
     const service = new OmnirouteService({
       baseURL: opts.baseURL ?? process.env.OMNIROUTE_URL ?? "http://localhost:3000",

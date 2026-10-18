@@ -103,9 +103,10 @@ export async function startDashboard(opts: DashboardOptions = {}): Promise<Dashb
     baseURL: omnirouteURL,
     ...(opts.omnirouteApiKey ? { apiKey: opts.omnirouteApiKey } : {}),
   });
-  if (!ctx.providers.has("omniroute")) {
-    ctx.providers.register(omniroute);
+  if (ctx.providers.has("omniroute")) {
+    ctx.providers.remove("omniroute");
   }
+  ctx.providers.register(omniroute);
 
   const memory = new MemoryManager();
   setMemoryManager(memory);

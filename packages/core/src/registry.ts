@@ -60,6 +60,10 @@ export class ProviderRegistry {
     return this.providers.has(id);
   }
 
+  remove(id: string): boolean {
+    return this.providers.delete(id);
+  }
+
   list(): Provider[] {
     return Array.from(this.providers.values());
   }
