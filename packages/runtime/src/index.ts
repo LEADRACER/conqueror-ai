@@ -68,6 +68,7 @@ export class AgentLoop {
     if (config.baseURL !== undefined) merged.baseURL = config.baseURL;
     if (config.apiKey !== undefined) merged.apiKey = config.apiKey;
     if (config.skills !== undefined) merged.skills = config.skills;
+    if (config.compact !== undefined) merged.compact = config.compact;
 
     const providerOpts: { baseURL?: string; apiKey?: string } = {};
     if (merged.baseURL) {
@@ -151,6 +152,7 @@ export class AgentLoop {
     let steps = 0;
     const maxSteps = this.config.maxSteps ?? 50;
     let usageTotal: { input: number; output: number } | undefined;
+    let compactionTotal: { unitsRemoved: number; charsSaved: number; rounds: number } | undefined;
 
     const controller = new AbortController();
     const timeoutVal = opts?.timeout ?? 120000;
@@ -194,6 +196,17 @@ export class AgentLoop {
         if (this.config.topP !== undefined) chatOpts.topP = this.config.topP;
         if (this.config.maxOutputTokens !== undefined) chatOpts.maxOutputTokens = this.config.maxOutputTokens;
 
+        const compacted = this.compactHistory(history);
+        if (compacted) {
+          if (compactionTotal) {
+            compactionTotal.unitsRemoved += compacted.unitsRemoved;
+            compactionTotal.charsSaved += compacted.charsSaved;
+            compactionTotal.rounds += 1;
+          } else {
+            compactionTotal = { ...compacted, rounds: 1 };
+          }
+        }
+
         const resp = await provider.chat(history, chatOpts);
 
         if (resp.usage) {
@@ -216,9 +229,13 @@ export class AgentLoop {
         onProgress?.(assistantMsg);
 
         if (resp.toolCalls && resp.toolCalls.length > 0) {
+          const toolCap = this.config.compact?.toolResultMaxChars ?? 8000;
           for (const call of resp.toolCalls) {
             const result = await this.dispatcher.execute(call);
-            const content = typeof result === "string" ? result : result.output;
+            let content = typeof result === "string" ? result : result.output;
+            if (typeof content === "string" && content.length > toolCap) {
+              content = content.slice(0, toolCap) + "\n…[truncated by context compaction]";
+            }
             const toolMsg: Message = {
               role: "tool",
               content,
@@ -247,11 +264,19 @@ export class AgentLoop {
     this.lastHistory = history;
 
     const lastAssistant = [...history].reverse().find((m) => m.role === "assistant");
-    if (lastAssistant && usageTotal) {
-      lastAssistant.metadata = {
-        ...(lastAssistant.metadata ?? {}),
-        usage: usageTotal,
-      };
+    if (lastAssistant) {
+      if (usageTotal) {
+        lastAssistant.metadata = {
+          ...(lastAssistant.metadata ?? {}),
+          usage: usageTotal,
+        };
+      }
+      if (compactionTotal && compactionTotal.charsSaved > 0) {
+        lastAssistant.metadata = {
+          ...(lastAssistant.metadata ?? {}),
+          compaction: compactionTotal,
+        };
+      }
     }
 
     if (this.memoryManager) {
@@ -275,6 +300,120 @@ export class AgentLoop {
   get finalAnswer(): string {
     const last = this.lastHistory.at(-1);
     return last?.content ?? "";
+  }
+
+  /**
+   * Context compaction: once the history exceeds the estimated token budget,
+   * drop the oldest fully-executed turn groups (tool-call rounds + their
+   * results) and leave an honest stub noting what was elided. System prompt
+   * and the original request are never removed; the most recent turns stay
+   * verbatim. Runs in place before each provider call.
+   */
+  private compactHistory(history: Message[]): { unitsRemoved: number; charsSaved: number } | null {
+    const policy = this.config.compact ?? {};
+    const thresholdTokens = policy.thresholdTokens ?? 24000;
+    const keepUnits = Math.max(2, policy.keepRecentUnits ?? 6);
+    const targetTokens = Math.ceil(thresholdTokens * 0.8);
+
+    const estimateChars = (msgs: Message[]): number =>
+      msgs.reduce(
+        (acc, m) => acc + (m.content?.length ?? 0) + (m.toolCalls ? 48 + m.toolCalls.length * 32 : 0),
+        0
+      );
+    let tokens = Math.ceil(estimateChars(history) / 4);
+    if (tokens <= thresholdTokens) {
+      return null;
+    }
+
+    // Group into units: [assistant(toolCalls) + following tool msgs] or single msg.
+    // Protected prefix = leading system messages + compaction stubs (if any) +
+    // the original user request. Everything after that is fair game.
+    const isProtected = (m: Message): boolean =>
+      m.role === "system" ||
+      (m.role === "assistant" && (m.content ?? "").startsWith("[context compacted"));
+    interface Unit {
+      start: number;
+      end: number;
+      remove: boolean;
+      protectedMsg: boolean;
+    }
+    const units: Unit[] = [];
+    let i = 0;
+    let protectedMsgs = 0;
+    while (i < history.length) {
+      const m = history[i]!;
+      if (isProtected(m)) {
+        units.push({ start: i, end: i + 1, remove: false, protectedMsg: true });
+        protectedMsgs++;
+        i++;
+        continue;
+      }
+      break;
+    }
+    // protect the original user request (first non-protected user message)
+    if (i < history.length && history[i]!.role === "user") {
+      units.push({ start: i, end: i + 1, remove: false, protectedMsg: true });
+      protectedMsgs++;
+      i++;
+    }
+    while (i < history.length) {
+      const m = history[i]!;
+      if (m.role === "assistant" && m.toolCalls && m.toolCalls.length > 0) {
+        let j = i + 1;
+        while (j < history.length && history[j]!.role === "tool") {
+          j++;
+        }
+        units.push({ start: i, end: j, remove: true, protectedMsg: false });
+        i = j;
+        continue;
+      }
+      units.push({ start: i, end: i + 1, remove: true, protectedMsg: false });
+      i++;
+    }
+
+    let unitsRemoved = 0;
+    let charsSaved = 0;
+    const droppedIdx = new Set<number>();
+    for (const u of units) {
+      if (tokens <= targetTokens) {
+        break;
+      }
+      if (!u.remove) {
+        continue;
+      }
+      const remainingAfter = units.length - unitsRemoved - 1;
+      if (remainingAfter < keepUnits) {
+        break;
+      }
+      for (let k = u.start; k < u.end; k++) {
+        droppedIdx.add(k);
+      }
+      const estimation = estimateChars(history.slice(u.start, u.end));
+      tokens -= Math.ceil(estimation / 4);
+      charsSaved += estimation;
+      unitsRemoved++;
+    }
+    if (unitsRemoved === 0) {
+      return null;
+    }
+
+    // Rebuild in place: keep everything not dropped, insert the stub right
+    // after the protected prefix.
+    const rebuilt: Message[] = [];
+    history.forEach((m, idx) => {
+      if (!droppedIdx.has(idx)) {
+        rebuilt.push(m);
+      }
+    });
+    const stub: Message = {
+      role: "assistant",
+      content: `[context compacted: ${unitsRemoved} earlier step(s) elided to save tokens; their tool results are no longer available]`,
+    };
+    rebuilt.splice(Math.min(protectedMsgs, rebuilt.length), 0, stub);
+    history.length = 0;
+    history.push(...rebuilt);
+
+    return { unitsRemoved, charsSaved };
   }
 }
 

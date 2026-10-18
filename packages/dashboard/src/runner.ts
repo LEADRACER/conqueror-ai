@@ -299,6 +299,11 @@ export class RunManager {
         run.dims.inputTokens = usage.input;
         run.dims.outputTokens = usage.output;
       }
+      const compaction = extractCompaction(history);
+      if (compaction) {
+        run.dims.charsCompacted = compaction.charsSaved;
+        run.dims.toolsDropped = compaction.unitsRemoved;
+      }
 
       const final = history.at(-1)?.content ?? "";
       run.status = "completed";
@@ -341,6 +346,17 @@ export class RunManager {
       this.store.flush();
     }
   }
+}
+
+function extractCompaction(history: Message[]): { unitsRemoved: number; charsSaved: number } | undefined {
+  for (let i = history.length - 1; i >= 0; i--) {
+    const meta = history[i]?.metadata;
+    const c = meta?.compaction as { unitsRemoved?: number; charsSaved?: number } | undefined;
+    if (c && typeof c.charsSaved === "number" && c.charsSaved > 0) {
+      return { charsSaved: c.charsSaved, unitsRemoved: c.unitsRemoved ?? 0 };
+    }
+  }
+  return undefined;
 }
 
 function extractUsage(history: Message[]): { input: number; output: number } | undefined {

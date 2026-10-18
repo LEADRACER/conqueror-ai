@@ -45,7 +45,9 @@ export interface RunRecord {
   answer?: string | undefined;
   dims: { steps: number;
  inputTokens: number;
- outputTokens: number };
+ outputTokens: number;
+ charsCompacted?: number | undefined;
+ toolsDropped?: number | undefined };
 
   toolCalls: { name: string;
  ts: string;

@@ -738,8 +738,15 @@ function runRowSimple(r) {
   return el("div", { class: "activity-item" }, [
     el("span", { class: `badge b-${r.status}`, text: r.status }),
     el("div", { class: "activity-msg" }, [el("span", { class: "", text: (r.request ?? "").slice(0, 110) })]),
-    el("span", { class: "activity-ts", text: `${r.dims?.steps ?? 0} steps · ${ago(r.startedAt)}` }),
+    r.dims?.charsCompacted > 0 ? el("span", { class: "activity-ts", text: `🗜 ${fmtTokens(r.dims.charsCompacted)} chars saved` }) : null,
+    el("span", { class: "activity-ts", text: `${r.dims?.steps ?? 0} steps · ${r.dims?.inputTokens ? fmtTokens(r.dims.inputTokens) + "→" + fmtTokens(r.dims.outputTokens) + " · " : ""}${ago(r.startedAt)}` }),
   ]);
+}
+function fmtTokens(n) {
+  if (n == null) return "–";
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
+  if (n >= 1000) return (n / 1000).toFixed(1) + "k";
+  return String(n);
 }
 function taskRowSimple(t) {
   return el("div", { class: "activity-item" }, [

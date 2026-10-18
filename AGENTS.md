@@ -26,6 +26,7 @@
 - OmniRoute integration: health/listing via `GET /v1/models` on the configured gateway; auto-start attempts `npx omniroute` unless `--no-auto-start`
 - Mission planning: "Plan" on a mission starts a planning run (`POST /api/missions/:id/plan`); completed plan runs are parsed (`{"tasks":["..."]}` JSON, numbered/bulleted fallback) into real tasks linked to the mission
 - Usage tracking: per-run token totals are attached by the agent loop to the final assistant message metadata and shown on runs/history
+- Context compaction: agent loop auto-compacts long histories — tool-result cap (default 8000 chars) plus token-budget-based dropping of oldest tool-call rounds (kept: system prompt, memory block, original request, recent turns; an honest `[context compacted: N step(s) elided]` stub marks the boundary). Policy via `AgentConfig.compact = { thresholdTokens (24k), keepRecentUnits (6), toolResultMaxChars (8000) }`; savings surface on run rows in the console
 - `npm run alex <request> --interop` — enable cross-host tools (opencode_run)
 - `npm run alex <request> --use-opencode` — use OpenCode as the model provider
 - `npm run alex <request> --no-auto-start` — skip auto-starting omniroute (use existing provider)

@@ -122,6 +122,15 @@ export interface Skill {
   readonly priority?: number;
 }
 
+export interface CompactionPolicy {
+  /** estimated token budget; compaction kicks in when history exceeds it (4 chars ≈ 1 token) */
+  thresholdTokens?: number;
+  /** number of recent history units (request + tool steps) kept verbatim when compacting */
+  keepRecentUnits?: number;
+  /** hard cap on characters kept from any single tool result */
+  toolResultMaxChars?: number;
+}
+
 export interface AgentConfig {
   provider: string;
   model: string;
@@ -133,6 +142,7 @@ export interface AgentConfig {
   skills?: string[];
   maxSteps?: number;
   maxRetries?: number;
+  compact?: CompactionPolicy;
 }
 
 export interface Plan {
