@@ -27,6 +27,8 @@ export class TuiDashboard {
   private paletteIndex = 0;
   private model = "gpt-4o";
   private provider = "opencode";
+  /** null = probing, false = no reachable gateway, true = connected */
+  private modelReachable: boolean | null = null;
   private step = 0;
   private maxSteps = 50;
   // @ts-ignore
@@ -45,6 +47,30 @@ export class TuiDashboard {
     this.agent = agent;
     this.terminal = new Terminal(cwd, 8, 40, (text) => { this.onTerminalOutput(text); });
     this.palette = new CommandPalette(ctx);
+    void this.probeModel();
+  }
+
+  /**
+   * Non-blocking reachability probe so the status bar can honestly show
+   * whether a model is usable. The TUI starts fine either way.
+   */
+  private async probeModel(): Promise<void> {
+    const providerID = this.provider;
+    const provider = this.ctx.providers.get(providerID);
+    if (!provider) {
+      this.modelReachable = false;
+      this.render();
+      return;
+    }
+    const opts = (provider as unknown as { options?: { baseURL?: string } }).options;
+    const baseURL = opts?.baseURL ?? "http://localhost:4000";
+    try {
+      await fetch(new URL("/v1/models", baseURL).toString(), { signal: AbortSignal.timeout(2500) });
+      this.modelReachable = true;
+    } catch {
+      this.modelReachable = false;
+    }
+    this.render();
   }
 
   private onTerminalOutput(_text: string): void {
@@ -123,25 +149,24 @@ export class TuiDashboard {
       return true;
     }
     if (this.focus === "settings") {
-      if (key === "1") {
-        this.provider = "opencode";
+      const pick = (providerId: string): void => {
+        this.provider = providerId;
+        this.modelReachable = null;
         this.focus = "input";
         this.render();
         this.renderSettings();
+        void this.probeModel();
+      };
+      if (key === "1") {
+        pick("opencode");
         return true;
       }
       if (key === "2") {
-        this.provider = "omniroute";
-        this.focus = "input";
-        this.render();
-        this.renderSettings();
+        pick("omniroute");
         return true;
       }
       if (key === "3") {
-        this.provider = "openai";
-        this.focus = "input";
-        this.render();
-        this.renderSettings();
+        pick("openai");
         return true;
       }
       this.focus = "input";
@@ -444,6 +469,8 @@ export class TuiDashboard {
       await this.agent.run(input, onProgress, {
         stream: true,
         timeout: 120000,
+        provider: this.provider,
+        model: this.model,
         onChunk,
       });
       this.status = "Complete";
@@ -451,7 +478,11 @@ export class TuiDashboard {
       const msg = err instanceof Error ? err.message : String(err);
       this.lastError = msg;
       this.status = "Error";
-      this.outputLines.push(C.red("Error: " + msg));
+      const hint =
+        msg.includes("fetch failed") || msg.includes("not registered")
+          ? C.gray(" — no model reachable. Point OMNIROUTE_URL at an OpenAI-compatible gateway (or pick a provider in Settings, s).")
+          : "";
+      this.outputLines.push(C.red("Error: " + msg) + hint);
     } finally {
       this.running = false;
       this.render();
@@ -652,7 +683,12 @@ export class TuiDashboard {
   private renderStatus(y: number, cols: number): void {
     TerminalUtils.moveCursor(0, y);
     const status = C.dim("|");
-    const model = C.green(this.model);
+    const model =
+      this.modelReachable === true
+        ? C.green(this.model)
+        : this.modelReachable === false
+          ? C.yellow(this.model + C.dim(" · no model"))
+          : C.green(this.model);
     const step = C.yellow("step " + this.step + "/" + this.maxSteps);
     const running = this.running ? C.red("running") : C.green("idle");
     let mode = "";

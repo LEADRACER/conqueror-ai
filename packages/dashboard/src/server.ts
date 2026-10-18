@@ -92,7 +92,7 @@ export async function startDashboard(opts: DashboardOptions = {}): Promise<Dashb
   const bus = new EventBus(store);
   const snapSettings = store.snapshot.settings;
 
-  const omnirouteAutoStart = opts.omnirouteAutoStart ?? true;
+  const omnirouteAutoStart = opts.omnirouteAutoStart ?? false;
   const omnirouteURL = opts.omnirouteURL ?? process.env.OMNIROUTE_URL ?? "http://localhost:3000";
   const { ctx, agent } = await AgentLoop.createDefault(process.cwd(), {
     provider: snapSettings.provider,

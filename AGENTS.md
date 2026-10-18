@@ -4,17 +4,16 @@
 - `npm run build` — compile all packages in dependency order
 - `npm run typecheck` — type-check all packages without emit
 - `npm run lint` — ESLint (configured when available)
-- `npm test` — type-check all packages + run `node:test` suite (`packages/dashboard/test/*.mjs`, 27 tests: state store, approvals gating, path containment, HTTP API, plan parsing)
-- `npm run alex -- <request>` — run Alex CLI for a single task (auto-starts omniroute unless `--no-auto-start`)
-- `npm run alex -i` — launch the TUI dashboard (interactive mode)
-- `npm run web` / `npm run alex web` — launch the web operations console (`http://127.0.0.1:3007`)
+- `npm test` — type-check all packages + run `node:test` suite (`packages/dashboard/test/*.mjs`, 31 tests: state store, approvals gating, path containment, HTTP API, plan parsing, context compaction)
+- `npm run alex` — launch the TUI dashboard (starts fine with no model configured; runs fail honestly with a hint to set `OMNIROUTE_URL`)
+- `npm run alex web` — launch the web operations console (`http://127.0.0.1:3007`)
 - `npm run alex web -- --port <n> --host <addr> --token <t>` — web console options (non-loopback host requires `--token`)
-- `npm run alex <request> --interop` — enable cross-host tools (opencode_run)
-- `npm run alex <request> --use-opencode` — use OpenCode as the model provider
-- `npm run alex <request> --no-auto-start` — skip auto-starting omniroute (use existing provider)
-- `npm run alex <request> --provider <id>` — select a specific provider (omniroute, opencode)
-- `npm run alex <request> --timeout <ms>` — set task timeout
-- `npm run alex <request> --max-steps <n>` — limit agent iterations
+- The old one-shot CLI mode (`alex <request>`) was removed; the TUI and web console are the entry points
+
+## TUI
+- Starts without any model: status bar shows `gpt-4o · no model` (yellow) until an OpenAI-compatible gateway is reachable at the configured provider's URL; turns green when connected
+- Settings pane (keys 1/2/3 → opencode / omniroute / openai) switches the provider actually used by runs and re-probes immediately
+- Point `OMNIROUTE_URL` at any OpenAI-compatible gateway (e.g. `http://127.0.0.1:20128`); perennial chat errors get an honest hint appended
 
 ## Web Operations Console (packages/dashboard)
 - Serves a single-page UI from `packages/dashboard/ui` (vanilla JS, no deps) and a REST + SSE API under `/api/*`
@@ -27,12 +26,6 @@
 - Mission planning: "Plan" on a mission starts a planning run (`POST /api/missions/:id/plan`); completed plan runs are parsed (`{"tasks":["..."]}` JSON, numbered/bulleted fallback) into real tasks linked to the mission
 - Usage tracking: per-run token totals are attached by the agent loop to the final assistant message metadata and shown on runs/history
 - Context compaction: agent loop auto-compacts long histories — tool-result cap (default 8000 chars) plus token-budget-based dropping of oldest tool-call rounds (kept: system prompt, memory block, original request, recent turns; an honest `[context compacted: N step(s) elided]` stub marks the boundary). Policy via `AgentConfig.compact = { thresholdTokens (24k), keepRecentUnits (6), toolResultMaxChars (8000) }`; savings surface on run rows in the console
-- `npm run alex <request> --interop` — enable cross-host tools (opencode_run)
-- `npm run alex <request> --use-opencode` — use OpenCode as the model provider
-- `npm run alex <request> --no-auto-start` — skip auto-starting omniroute (use existing provider)
-- `npm run alex <request> --provider <id>` — select a specific provider (omniroute, opencode)
-- `npm run alex <request> --timeout <ms>` — set task timeout
-- `npm run alex <request> --max-steps <n>` — limit agent iterations
 
 ## TUI Shortcuts
 - `Ctrl+P` — open command palette
