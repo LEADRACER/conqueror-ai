@@ -28,13 +28,14 @@
 - Context compaction: agent loop auto-compacts long histories — tool-result cap (default 8000 chars) plus token-budget-based dropping of oldest tool-call rounds (kept: system prompt, memory block, original request, recent turns; an honest `[context compacted: N step(s) elided]` stub marks the boundary). Policy via `AgentConfig.compact = { thresholdTokens (24k), keepRecentUnits (6), toolResultMaxChars (8000) }`; savings surface on run rows in the console
 
 ## TUI Shortcuts
-- `Ctrl+P` — open command palette
-- `Ctrl+T` — focus terminal panel
-- `Ctrl+E` — open VS Code extension browser (search + install)
+- `Ctrl+P` — open command palette (Enter runs wired actions: clear screen, list tools/providers/skills, browse extensions, switch provider)
+- `Ctrl+T` — focus terminal panel (Esc returns to input)
+- `Ctrl+E` — open VS Code extension browser (debounced marketplace search, Enter installs)
+- `Ctrl+O` — settings overlay (1/2/3 pick provider + re-probe, Esc closes)
 - `Ctrl+L` — clear output
 - `Ctrl+Q` or `Ctrl+C` — quit
 - `Tab` — cycle between input and terminal
-- `Esc` — close command palette / extensions browser
+- `Esc` — close command palette / extensions browser / settings overlay
 
 ## Notes
 - Target: Node 22 (ESM, NodeNext module resolution, es2022 lib)

@@ -123,8 +123,23 @@ export class TerminalUtils {
   }
 
   static setRawMode(enabled: boolean): void {
-    if (process.stdin.isTTY) {
-      process.stdin.setRawMode(enabled);
+    if (!process.stdin.isTTY) {
+      return;
+    }
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        process.stdin.setRawMode(enabled);
+        return;
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code ?? "";
+        const backoff = (attempt + 1) * 120;
+        if (attempt < 3) {
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, backoff);
+        } else if (enabled) {
+          // Last resort: keep the TUI alive without raw mode rather than dying.
+          process.stderr.write(`[tui] setRawMode failed (${code || "unknown"}); continuing in line mode\n`);
+        }
+      }
     }
   }
 

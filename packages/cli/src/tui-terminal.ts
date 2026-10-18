@@ -1,5 +1,7 @@
+import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
-import type { SpawnOptions } from "node:child_process";
+
+const MAX_BUFFER_LINES = 800;
 
 export class Terminal {
   private buffer: string[] = [];
@@ -9,12 +11,12 @@ export class Terminal {
   private shellBuffer = "";
   public height = 10;
   public width = 80;
+  public onOutput: (text: string) => void = () => {};
 
   constructor(
     public cwd: string,
     height: number,
-    width: number,
-    private onOutput: (text: string) => void = () => {}
+    width: number
   ) {
     this.height = height;
     this.width = width;
@@ -22,27 +24,43 @@ export class Terminal {
 
   startShell(): void {
     if (this.shell) return;
-    const options: SpawnOptions = {
-      shell: "/bin/bash",
+    // Run the subshell in its own session so it never fights the TUI over the
+    // controlling terminal's termios (bash -i grabs the tty via readline).
+    const setsid = existsSync("/usr/bin/setsid") ? "/usr/bin/setsid" : null;
+    const args = setsid
+      ? [setsid, "--wait", "bash", "--norc", "-i"]
+      : ["bash", "--norc", "-i"];
+    const env = { ...(process.env as Record<string, string | undefined>), TERM: "dumb" };
+    this.shell = spawn(args[0]!, args.slice(1), {
       cwd: this.cwd,
-      env: { ...process.env },
+      env,
       stdio: ["pipe", "pipe", "pipe"],
-    };
-    this.shell = spawn("bash", ["-i"], options);
+    });
     this.shell.stdout?.on("data", (data) => {
-      this.shellBuffer += data.toString();
+      this.appendBuffer(data.toString());
       this.onOutput(data.toString());
     });
     this.shell.stderr?.on("data", (data) => {
-      this.shellBuffer += data.toString();
+      this.appendBuffer(data.toString());
       this.onOutput(data.toString());
     });
-    this.shell.on("exit", (_code) => {
+    this.shell.on("exit", () => {
       this.shell = null;
     });
   }
 
+  private appendBuffer(text: string): void {
+    this.shellBuffer += text;
+    const lines = this.shellBuffer.split("\n");
+    if (lines.length > MAX_BUFFER_LINES) {
+      this.shellBuffer = lines.slice(-Math.floor(MAX_BUFFER_LINES / 2)).join("\n");
+    }
+  }
+
   writeInput(input: string): void {
+    if (!this.shell) {
+      this.startShell();
+    }
     if (!this.shell || !this.shell.stdin) {
       this.buffer.push("$ " + input);
       this.buffer.push("[terminal not available]");

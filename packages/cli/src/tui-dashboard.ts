@@ -3,6 +3,7 @@ import { AgentLoop } from "@alex-ai/runtime";
 import { Terminal } from "./tui-terminal.js";
 import { CommandPalette } from "./tui-palette.js";
 import { Style, TerminalUtils } from "./tui-utils.js";
+import { Panes } from "./tui-panes.js";
 
 type Focus = "input" | "terminal" | "palette" | "extensions" | "settings";
 const C = Style;
@@ -13,13 +14,14 @@ interface ExtensionInfo {
   description: string;
 }
 
+const EXT_SEARCH_DEBOUNCE_MS = 300;
+
 export class TuiDashboard {
   private ctx: AlexContext;
   private agent: AgentLoop;
   private terminal: Terminal;
   private palette: CommandPalette;
   private outputLines: string[] = [];
-  private toolCalls: { name: string; args: Record<string, unknown> }[] = [];
   private input = "";
   private focus: Focus = "input";
   private paletteQuery = "";
@@ -31,22 +33,33 @@ export class TuiDashboard {
   private modelReachable: boolean | null = null;
   private step = 0;
   private maxSteps = 50;
-  // @ts-ignore
-  private status = "Ready";
-  private running = false;
-  private history: string[] = [];
-  // @ts-ignore
   private lastError = "";
+  private running = false;
   private extSearchQuery = "";
   private extResults: ExtensionInfo[] = [];
   private extSelectedIndex = 0;
   private extLoading = false;
+  private extSearchTimer: ReturnType<typeof setTimeout> | null = null;
+  private extSearchSeq = 0;
 
   constructor(ctx: AlexContext, agent: AgentLoop, cwd: string) {
     this.ctx = ctx;
     this.agent = agent;
-    this.terminal = new Terminal(cwd, 8, 40, (text) => { this.onTerminalOutput(text); });
-    this.palette = new CommandPalette(ctx);
+    this.terminal = new Terminal(cwd, 8, 40);
+    this.palette = new CommandPalette(ctx, {
+      clearScreen: () => {
+        this.outputLines = [];
+        this.lastError = "";
+        this.render();
+      },
+      openExtensions: () => {
+        this.openExtensions();
+        this.render();
+      },
+      switchProvider: (id: string) => {
+        this.pickProvider(id);
+      },
+    });
     void this.probeModel();
   }
 
@@ -63,9 +76,15 @@ export class TuiDashboard {
       return;
     }
     const opts = (provider as unknown as { options?: { baseURL?: string } }).options;
-    const baseURL = opts?.baseURL ?? "http://localhost:4000";
+    const fallbackURL =
+      providerID === "omniroute"
+        ? process.env.OMNIROUTE_URL ?? "http://localhost:3000"
+        : "http://localhost:4000";
+    const baseURL = opts?.baseURL ?? fallbackURL;
     try {
-      await fetch(new URL("/v1/models", baseURL).toString(), { signal: AbortSignal.timeout(2500) });
+      await fetch(new URL("/v1/models", baseURL).toString(), {
+        signal: AbortSignal.timeout(2500),
+      });
       this.modelReachable = true;
     } catch {
       this.modelReachable = false;
@@ -80,6 +99,7 @@ export class TuiDashboard {
   }
 
   start(): void {
+    this.terminal.onOutput = (text) => this.onTerminalOutput(text);
     this.terminal.startShell();
     TerminalUtils.clear();
     TerminalUtils.hideCursor();
@@ -97,16 +117,35 @@ export class TuiDashboard {
   }
 
   handleKey(key: string): boolean {
-    if (this.focus === "palette") {
-      return this.handlePaletteKey(key);
-    }
-    if (this.focus === "terminal" && this.handleTerminalKey(key)) {
+    try {
+      if (this.focus === "palette") {
+        return this.handlePaletteKey(key);
+      }
+      if (this.focus === "terminal" && this.handleTerminalKey(key)) {
+        return true;
+      }
+      if (this.focus === "extensions") {
+        return this.handleExtensionKey(key);
+      }
+      return this.handleGlobalKey(key);
+    } catch {
       return true;
     }
-    if (this.focus === "extensions") {
-      return this.handleExtensionKey(key);
-    }
-    return this.handleGlobalKey(key);
+  }
+
+  private openExtensions(): void {
+    this.focus = "extensions";
+    this.extSearchQuery = "";
+    this.extResults = [];
+    this.extSelectedIndex = 0;
+    this.extLoading = false;
+  }
+
+  private pickProvider(providerId: string): void {
+    this.provider = providerId;
+    this.modelReachable = null;
+    void this.probeModel();
+    this.render();
   }
 
   private handleGlobalKey(key: string): boolean {
@@ -128,7 +167,6 @@ export class TuiDashboard {
     }
     if (key === "\x0c") {
       this.outputLines = [];
-      this.toolCalls = [];
       this.lastError = "";
       this.render();
       return true;
@@ -139,47 +177,41 @@ export class TuiDashboard {
       return true;
     }
     if (key === "\x05") {
-      this.focus = "extensions";
-      this.extSearchQuery = "";
-      this.extResults = [];
-      this.extSelectedIndex = 0;
-      this.extLoading = false;
-      this.focus = "settings";
+      this.openExtensions();
       this.render();
       return true;
     }
     if (this.focus === "settings") {
-      const pick = (providerId: string): void => {
-        this.provider = providerId;
-        this.modelReachable = null;
-        this.focus = "input";
-        this.render();
-        this.renderSettings();
-        void this.probeModel();
-      };
       if (key === "1") {
-        pick("opencode");
+        this.pickProvider("opencode");
+        this.focus = "input";
         return true;
       }
       if (key === "2") {
-        pick("omniroute");
+        this.pickProvider("omniroute");
+        this.focus = "input";
         return true;
       }
       if (key === "3") {
-        pick("openai");
+        this.pickProvider("openai");
+        this.focus = "input";
         return true;
       }
       this.focus = "input";
-      this.renderSettings();
+      this.render();
+      return true;
+    }
+    if (this.focus === "terminal") {
+      // handleTerminalKey declined non-edit keys; Esc leaves the pane
+      if (key === "\x1b") {
+        this.focus = "input";
+        this.render();
+        return true;
+      }
       return true;
     }
     if (this.focus === "input" && key === "\t") {
-      const order: Focus[] = ["input", "terminal"];
-      const orderIdx = order.indexOf(this.focus);
-      const nextFocus = order[(orderIdx + 1) % order.length];
-      if (nextFocus) {
-        this.focus = nextFocus;
-      }
+      this.focus = "terminal";
       this.render();
       return true;
     }
@@ -193,8 +225,38 @@ export class TuiDashboard {
     if (key === "\r") {
       const trimmed = this.input.trim();
       if (trimmed) {
-        this.history.push(trimmed);
         this.submitQuery(trimmed);
+      }
+      return true;
+    }
+    if (key === "\x7f") {
+      this.input = this.input.slice(0, -1);
+      this.render();
+      return true;
+    }
+    if (key === "\x15") {
+      this.input = "";
+      this.render();
+      return true;
+    }
+    if (key.length === 1) {
+      const code = key.codePointAt(0);
+      if (code !== undefined && code >= 32 && code !== 127) {
+        this.input += key;
+        this.render();
+      }
+      return true;
+    }
+    return true;
+  }
+
+  private handleTerminalKey(key: string): boolean {
+    if (key === "\r") {
+      const trimmed = this.input.trim();
+      if (trimmed) {
+        this.input = "";
+        this.terminal.writeInput(trimmed);
+        this.render();
       }
       return true;
     }
@@ -208,41 +270,60 @@ export class TuiDashboard {
       this.renderInputLine();
       return true;
     }
-    if (key.length === 1 && key >= " " && key <= "~") {
-      this.input += key;
-      this.renderInputLine();
-      return true;
+    if (key.length === 1) {
+      const code = key.codePointAt(0);
+      if (code !== undefined && code >= 32 && code !== 127) {
+        this.input += key;
+        this.renderInputLine();
+        return true;
+      }
     }
-    return true;
+    return false;
   }
 
-  private async searchExtensions(query: string): Promise<void> {
+  private queueExtensionSearch(): void {
+    if (this.extSearchTimer) {
+      clearTimeout(this.extSearchTimer);
+    }
+    const seqAtQueue = ++this.extSearchSeq;
+    this.extSearchTimer = setTimeout(() => {
+      this.extSearchTimer = null;
+      void this.runExtensionSearch(this.extSearchQuery, seqAtQueue);
+    }, EXT_SEARCH_DEBOUNCE_MS);
+  }
+
+  private async runExtensionSearch(query: string, seq: number): Promise<void> {
     if (!query.trim()) {
       this.extResults = [];
+      this.extLoading = false;
+      this.render();
       return;
     }
     this.extLoading = true;
     this.render();
     try {
       const result = await this.ctx.callTool("vscode_search_marketplace", { query });
+      if (seq !== this.extSearchSeq) return; // stale response
       const text = typeof result === "string" ? result : result.output;
       let parsed: unknown = null;
       try {
         parsed = JSON.parse(text);
       } catch {
       }
+      let found: ExtensionInfo[] = [];
       if (Array.isArray(parsed)) {
-        this.extResults = parsed.map((e) => ({
-          name: (e as { id?: string }).id ?? (e as { extensionId?: string }).extensionId ?? "",
-          displayName: (e as { displayName?: string }).displayName ??
-            (e as { extensionId?: string }).extensionId ??
-            (e as { name?: string }).name ?? "",
-          description: (e as { description?: string }).description ?? "",
-        }));
+        found = parsed.map((e) => {
+          const ext = e as { id?: string; extensionId?: string; displayName?: string; name?: string; description?: string };
+          return {
+            name: ext.id ?? ext.extensionId ?? "",
+            displayName: ext.displayName ?? ext.extensionId ?? ext.name ?? "",
+            description: ext.description ?? "",
+          };
+        });
       } else if (typeof parsed === "object" && parsed !== null) {
         const arr = (parsed as { extensions?: unknown[] }).extensions;
-        if (arr) {
-          this.extResults = arr.map((e) => {
+        if (Array.isArray(arr)) {
+          found = arr.map((e) => {
             const ext = e as { extensionId?: string; displayName?: string; description?: string };
             return {
               name: ext.extensionId ?? "",
@@ -252,13 +333,16 @@ export class TuiDashboard {
           });
         }
       }
+      this.extResults = found;
       this.extSelectedIndex = 0;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.outputLines.push(C.red("Extension search error: " + msg));
     } finally {
-      this.extLoading = false;
-      this.render();
+      if (seq === this.extSearchSeq) {
+        this.extLoading = false;
+        this.render();
+      }
     }
   }
 
@@ -266,6 +350,11 @@ export class TuiDashboard {
     if (key === "\x1b") {
       this.focus = "input";
       this.extSearchQuery = "";
+      this.extResults = [];
+      if (this.extSearchTimer) {
+        clearTimeout(this.extSearchTimer);
+        this.extSearchTimer = null;
+      }
       this.render();
       return true;
     }
@@ -275,36 +364,31 @@ export class TuiDashboard {
       }
       const selected = this.extResults[this.extSelectedIndex];
       if (selected) {
-        this.installExtension(selected.name);
+        void this.installExtension(selected.name);
       }
-      return true;
-    }
-    if (key === " ") {
-      this.focus = "input";
-      this.extSearchQuery = "";
-      this.extResults = [];
-      this.render();
-      return true;
-    }
-    if (key === "k") {
-      this.extSelectedIndex = Math.max(0, this.extSelectedIndex - 1);
-      this.render();
-      return true;
-    }
-    if (key === "j") {
-      this.extSelectedIndex = Math.min(this.extResults.length - 1, this.extSelectedIndex + 1);
-      this.render();
       return true;
     }
     if (key === "\x7f") {
       this.extSearchQuery = this.extSearchQuery.slice(0, -1);
-      this.searchExtensions(this.extSearchQuery);
+      this.queueExtensionSearch();
+      this.render();
       return true;
     }
-    if (key === "\r" === false && key.length === 1 && key >= " " && key <= "~") {
-      this.extSearchQuery += key;
-      this.searchExtensions(this.extSearchQuery);
-      return true;
+    if (key === "\x02" || key === "\x10") {
+      // let ctrl-combos fall through to global handling
+      return this.handleGlobalKey(key);
+    }
+    if (key.length === 1) {
+      const code = key.codePointAt(0);
+      if (code !== undefined && code >= 32 && code !== 127) {
+        this.extSearchQuery += key;
+        if (key === " " && !this.extSearchQuery.trim()) {
+          this.extSearchQuery = "";
+        }
+        this.queueExtensionSearch();
+        this.render();
+        return true;
+      }
     }
     return true;
   }
@@ -312,6 +396,7 @@ export class TuiDashboard {
   private async installExtension(extensionId: string): Promise<void> {
     if (!extensionId) {
       this.outputLines.push(C.red("Cannot install: no extension ID"));
+      this.render();
       return;
     }
     this.outputLines.push(C.cyan("> Installing extension: ") + C.bold(extensionId));
@@ -320,7 +405,7 @@ export class TuiDashboard {
       const result = await this.ctx.callTool("vscode_install", { extensionId });
       const text = typeof result === "string" ? result : result.output;
       this.outputLines.push(C.green("✓ ") + text.slice(0, 200));
-      this.outputLines.push(C.gray(`Installed ${extensionId} into VS Code`));
+      this.outputLines.push(C.gray("Installed " + extensionId + " into VS Code"));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.outputLines.push(C.red("Install failed: " + msg));
@@ -329,34 +414,6 @@ export class TuiDashboard {
     this.extSearchQuery = "";
     this.extResults = [];
     this.render();
-  }
-
-  private handleTerminalKey(key: string): boolean {
-    if (key === "\r") {
-      const trimmed = this.input.trim();
-      if (trimmed) {
-        this.terminal.writeInput(trimmed);
-        this.input = "";
-        this.render();
-      }
-      return true;
-    }
-    if (key === "\x7f") {
-      this.input = this.input.slice(0, -1);
-      this.renderTerminalInput();
-      return true;
-    }
-    if (key === "\x15") {
-      this.input = "";
-      this.renderTerminalInput();
-      return true;
-    }
-    if (key.length === 1 && key >= " " && key <= "~") {
-      this.input += key;
-      this.renderTerminalInput();
-      return true;
-    }
-    return false;
   }
 
   private handlePaletteKey(key: string): boolean {
@@ -368,74 +425,77 @@ export class TuiDashboard {
     }
     if (key === "\r") {
       const selected = this.paletteResults[this.paletteIndex];
-      if (selected && selected.action) {
-        selected.action().then((result) => {
-          this.outputLines.push(C.cyan("> " + selected.label) + ":");
-          this.outputLines.push(result);
-          this.paletteQuery = "";
-          this.focus = "input";
-          this.render();
-        });
-      }
       this.focus = "input";
       this.paletteQuery = "";
-      this.render();
+      if (selected?.action) {
+        const item = selected;
+        const action: () => Promise<string> = selected.action;
+        void action().then((result) => {
+          this.outputLines.push(C.cyan("> " + item.label) + ":");
+          this.outputLines.push(result);
+          this.render();
+        }).catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          this.outputLines.push(C.red("> " + item.label + " failed: " + msg));
+          this.render();
+        });
+      } else {
+        this.render();
+      }
       return true;
     }
     if (key === "\x7f") {
       this.paletteQuery = this.paletteQuery.slice(0, -1);
       this.paletteResults = this.palette.search(this.paletteQuery);
-      this.paletteIndex = 0;
+      this.paletteIndex = this.clampPaletteIndex();
       this.render();
       return true;
     }
-    if (key === "k") {
+    if (key === "k" || key === "\x1b[A") {
       this.paletteIndex = Math.max(0, this.paletteIndex - 1);
       this.render();
       return true;
     }
-    if (key === "j") {
-      this.paletteIndex = Math.min(this.paletteResults.length - 1, this.paletteIndex + 1);
+    if (key === "j" || key === "\x1b[B") {
+      this.paletteIndex = Math.min(Math.max(0, this.paletteResults.length - 1), this.paletteIndex + 1);
       this.render();
       return true;
     }
-    if (key.length === 1 && key >= " " && key <= "~") {
-      this.paletteQuery += key;
-      this.paletteResults = this.palette.search(this.paletteQuery);
-      this.paletteIndex = 0;
-      this.render();
-      return true;
+    if (key.length === 1) {
+      const code = key.codePointAt(0);
+      if (code !== undefined && code >= 32 && code !== 127) {
+        this.paletteQuery += key;
+        this.paletteResults = this.palette.search(this.paletteQuery);
+        this.paletteIndex = this.clampPaletteIndex();
+        this.render();
+        return true;
+      }
     }
     return true;
   }
 
-  private renderInputLine(): void {
-    const { cols } = TerminalUtils.size;
-    // @ts-ignore
-    const inputWidth = Math.max(1, cols - 15);
-    TerminalUtils.moveCursor(0, TerminalUtils.size.rows - 2);
-    const display = this.input;
-    process.stdout.write(C.cyan("alex> ") + C.cyan(display));
-    const used = 6 + display.length;
-    process.stdout.write(" ".repeat(Math.max(0, cols - used)));
+  private clampPaletteIndex(): number {
+    if (this.paletteResults.length === 0) return 0;
+    return Math.min(this.paletteIndex, this.paletteResults.length - 1);
   }
 
-  private renderTerminalInput(): void {
+  private renderInputLine(): void {
     const { cols, rows } = TerminalUtils.size;
-    TerminalUtils.moveCursor(0, rows - 2);
-    const display = this.input;
-    process.stdout.write(C.gray("$ ") + C.cyan(display));
-    const used = 2 + display.length;
-    process.stdout.write(" ".repeat(Math.max(0, cols - used)));
+    if (cols < 40 || rows < 12) {
+      TerminalUtils.moveCursor(0, rows - 1);
+      const prefix = this.focus === "terminal" ? "$ " : "alex> ";
+      process.stdout.write(C.cyan(prefix + this.input.slice(0, cols - 10)));
+      return;
+    }
+    Panes.inputLine(rows - 2, cols, this.input, this.focus === "terminal");
   }
 
   private async submitQuery(input: string): Promise<void> {
     this.running = true;
     this.step = 0;
-    this.status = "Processing...";
     this.input = "";
     this.outputLines = [];
-    this.toolCalls = [];
+    this.lastError = "";
     this.render();
 
     const onProgress = (msg: Message) => {
@@ -446,7 +506,6 @@ export class TuiDashboard {
         }
         if (msg.toolCalls && msg.toolCalls.length > 0) {
           for (const call of msg.toolCalls) {
-            this.toolCalls.push({ name: call.name, args: call.arguments });
             this.outputLines.push(
               C.yellow("[tool] ") + C.bold(call.name) + C.gray(" " + JSON.stringify(call.arguments))
             );
@@ -456,6 +515,7 @@ export class TuiDashboard {
         const preview = (msg.content ?? "").slice(0, 100);
         this.outputLines.push(C.gray("[result] ") + preview);
       }
+      this.render();
     };
 
     const onChunk = (delta: { content?: string; reasoning?: string; toolCall?: ToolCall }) => {
@@ -473,14 +533,12 @@ export class TuiDashboard {
         model: this.model,
         onChunk,
       });
-      this.status = "Complete";
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.lastError = msg;
-      this.status = "Error";
       const hint =
         msg.includes("fetch failed") || msg.includes("not registered")
-          ? C.gray(" — no model reachable. Point OMNIROUTE_URL at an OpenAI-compatible gateway (or pick a provider in Settings, s).")
+          ? C.gray(" — no model reachable. Point OMNIROUTE_URL at an OpenAI-compatible gateway (Ctrl+O to pick a provider).")
           : "";
       this.outputLines.push(C.red("Error: " + msg) + hint);
     } finally {
@@ -497,246 +555,67 @@ export class TuiDashboard {
     }
 
     TerminalUtils.clear();
-
-    const toolPanelWidth = Math.floor(cols * 0.28);
-    const mainWidth = cols - toolPanelWidth - 2;
-    const toolPanelX = 0;
-    const mainX = toolPanelWidth + 1;
-    const panelTop = 1;
-    const panelHeight = rows - 4;
-    const terminalHeight = Math.max(4, Math.floor(rows * 0.25));
-    const mainPanelHeight = panelHeight - terminalHeight;
-    const statusY = rows - 1;
-
     process.stdout.write("\x1b[H");
 
-    this.drawBorder(toolPanelX, panelTop, toolPanelWidth, mainPanelHeight, "TOOLS", "cyan");
-    this.drawBorder(mainX, panelTop, mainWidth, mainPanelHeight, "AGENT OUTPUT", "blue");
-    this.drawBorder(0, panelTop + mainPanelHeight, cols, terminalHeight, "TERMINAL", "yellow");
+    const toolPanelWidth = Math.min(Math.max(24, Math.floor(cols * 0.28)), 40);
+    const mainX = toolPanelWidth + 1;
+    const mainWidth = cols - mainX - 1;
+    const totalPanel = rows - 2; // rows 0..rows-3; rows-2 input, rows-1 status
+    const terminalHeight = Math.min(Math.max(4, Math.floor(rows * 0.25)), totalPanel - 8);
+    const mainPanelHeight = totalPanel - terminalHeight + 1;
+
+    Panes.bordered(0, 0, toolPanelWidth, mainPanelHeight,
+      this.focus === "extensions" ? "EXTENSIONS" : "TOOLS",
+      this.focus === "extensions" ? "magenta" : "cyan");
+    Panes.bordered(mainX, 0, mainWidth, mainPanelHeight, "AGENT OUTPUT", "blue");
+    Panes.bordered(0, mainPanelHeight - 1, cols, terminalHeight + 1, "TERMINAL", "yellow");
 
     if (this.focus === "extensions") {
-      this.renderExtensionsPanel(toolPanelX + 1, panelTop + 1, toolPanelWidth - 2, mainPanelHeight - 2);
+      Panes.extensions(1, 1, toolPanelWidth - 2, mainPanelHeight - 2,
+        this.extSearchQuery, this.extResults, this.extSelectedIndex, this.extLoading);
     } else {
-      this.renderToolsPanel(toolPanelX + 1, panelTop + 1, toolPanelWidth - 2, mainPanelHeight - 2);
+      Panes.tools(1, 1, toolPanelWidth - 2, mainPanelHeight - 2, this.ctx.listTools());
     }
-    this.renderOutputPanel(mainX + 1, panelTop + 1, mainWidth - 2, mainPanelHeight - 2);
-    this.renderTerminal(1, panelTop + mainPanelHeight + 1, cols - 2, terminalHeight - 2);
-    this.renderStatus(statusY, cols);
+    Panes.output(mainX + 1, 1, mainWidth - 2, mainPanelHeight - 3, this.outputLines);
+    Panes.terminal(1, mainPanelHeight, cols - 2, terminalHeight - 2, this.terminal);
 
     if (this.focus === "palette") {
-      this.renderPalette();
+      Panes.paletteOverlay(cols, rows, {
+        query: this.paletteQuery,
+        results: this.paletteResults,
+        index: this.paletteIndex,
+      });
+    }
+    if (this.focus === "settings") {
+      Panes.settingsOverlay(cols, rows, { provider: this.provider, reachable: this.modelReachable });
     }
 
-    TerminalUtils.moveCursor(0, statusY);
-    process.stdout.write(C.dim("│"));
-    process.stdout.write(C.cyan(" alex> "));
-    const display = this.input;
-    process.stdout.write(C.cyan(display));
-    const used = 8 + display.length;
-    process.stdout.write(" ".repeat(Math.max(0, cols - used - 1)));
-    process.stdout.write(C.dim("│"));
-  }
-
-  private renderSettings(): void {
-    const { rows } = TerminalUtils.size;
-    TerminalUtils.moveCursor(0, rows - 3);
-    process.stdout.write(C.cyan("Settings: Provider = " + this.provider + "  |  Press 1-3 to change, Esc to return"));
+    Panes.inputLine(rows - 2, cols, this.input, this.focus === "terminal");
+    Panes.statusBar(rows - 1, cols, {
+      model: this.model,
+      reachable: this.modelReachable,
+      step: this.step,
+      maxSteps: this.maxSteps,
+      running: this.running,
+      focus: this.focus,
+    });
   }
 
   private renderCompact(): void {
     const { cols, rows } = TerminalUtils.size;
     TerminalUtils.clear();
-    this.renderStatus(rows - 2, cols);
     const lines = this.outputLines.slice(-rows + 3);
     for (let i = 0; i < lines.length; i++) {
       TerminalUtils.moveCursor(0, i);
       process.stdout.write((lines[i] ?? "").slice(0, cols - 1));
     }
+    TerminalUtils.moveCursor(0, rows - 2);
+    const prefix = this.focus === "terminal" ? "$ " : "alex> ";
+    process.stdout.write(C.cyan(prefix + this.input.slice(0, cols - 10)));
     TerminalUtils.moveCursor(0, rows - 1);
-    process.stdout.write(C.cyan("alex> ") + this.input.slice(0, cols - 10));
-  }
-
-  private drawBorder(
-    x: number,
-    y: number,
-    width: number,
-    height: number,
-    title: string,
-    color: "cyan" | "blue" | "yellow" | "green" | "red" | "magenta"
-  ): void {
-    const colorCode = C.code(color);
-    const resetCode = C.code("reset");
-    const chars = { topLeft: "+", topRight: "+", botLeft: "+", botRight: "+", midLeft: "|", midRight: "|" };
-    const titleStr = " " + title + " ";
-
-    TerminalUtils.moveCursor(x, y);
-    let line = colorCode;
-    for (let i = 0; i < width; i++) {
-      if (i === 1) {
-        line += titleStr;
-        i += titleStr.length - 1;
-      } else if (i === 0) {
-        line += chars.topLeft;
-      } else if (i === width - 1) {
-        line += chars.topRight;
-      } else {
-        line += "-";
-      }
-    }
-    process.stdout.write(line + resetCode + "\n");
-
-    for (let row = 1; row < height - 1; row++) {
-      TerminalUtils.moveCursor(x, y + row);
-      process.stdout.write(colorCode + chars.midLeft + resetCode + " ".repeat(width - 2) + colorCode + chars.midRight + resetCode + "\n");
-    }
-
-    TerminalUtils.moveCursor(x, y + height - 1);
-    let botLine = colorCode;
-    for (let i = 0; i < width; i++) {
-      if (i === 0) {
-        botLine += chars.botLeft;
-      } else if (i === width - 1) {
-        botLine += chars.botRight;
-      } else {
-        botLine += "-";
-      }
-    }
-    process.stdout.write(botLine + resetCode + "\n");
-  }
-
-  private renderToolsPanel(x: number, y: number, width: number, height: number): void {
-    const tools = this.ctx.listTools();
-    let items: string[] = [];
-
-    items.push(C.cyan("◆ [EXT] VS Code Extensions") + C.gray(" (Ctrl+E)"));
-    items.push("");
-
-    items.push(...tools.map((t) => {
-      const icon = t.name.startsWith("vscode") ? C.magenta("[VSC]") :
-        t.name.startsWith("subagent") ? C.cyan("[SUB]") :
-        t.name.startsWith("opencode") ? C.green("[OC]") :
-        t.name.startsWith("mcp") ? C.yellow("[MCP]") :
-        t.name.startsWith("http") ? C.blue("[API]") :
-        t.name.startsWith("web") ? C.magenta("[WEB]") :
-        t.name.startsWith("browser") ? C.blue("[BRW]") :
-        t.name.startsWith("memory") ? C.yellow("[MEM]") : "     ";
-      return icon + " " + C.bold(t.name);
-    }));
-
-    const visible = items.slice(0, height);
-    for (let i = 0; i < visible.length && i < height; i++) {
-      TerminalUtils.moveCursor(x, y + i);
-      process.stdout.write((visible[i] ?? "").slice(0, width).padEnd(width));
-    }
-  }
-
-  private renderExtensionsPanel(x: number, y: number, width: number, height: number): void {
-    const searchHeight = 1;
-    const listHeight = height - searchHeight;
-    const results = this.extResults.slice(0, listHeight - 2);
-
-    TerminalUtils.moveCursor(x, y);
-    const searchBox = C.cyan("🔍 ") + C.bold("Search:") + " " + C.gray(this.extSearchQuery || "type extension name...");
-    process.stdout.write(searchBox.slice(0, width).padEnd(width));
-
-    for (let i = 0; i < results.length && i < listHeight - 2; i++) {
-      TerminalUtils.moveCursor(x, y + searchHeight + i);
-      const ext = results[i]!;
-      const prefix = i === this.extSelectedIndex ? C.green("▶ ") : "  ";
-      const name = C.bold(ext.displayName || ext.name);
-      const desc = C.gray((ext.description || "").slice(0, width - 20));
-      const line = prefix + name + "\n" + " ".repeat(prefix.length) + desc;
-      const lines = line.split("\n");
-      for (let j = 0; j < lines.length && j < 2; j++) {
-        if (y + searchHeight + i + j < y + height) {
-          TerminalUtils.moveCursor(x, y + searchHeight + i + j);
-          process.stdout.write((lines[j] ?? "").slice(0, width).padEnd(width));
-        }
-      }
-    }
-
-    for (let i = results.length + searchHeight; i < height; i++) {
-      TerminalUtils.moveCursor(x, y + i);
-      process.stdout.write(" ".repeat(width));
-    }
-  }
-
-  private renderOutputPanel(x: number, y: number, width: number, height: number): void {
-    const lines = this.outputLines.slice(-height);
-    for (let i = 0; i < height; i++) {
-      TerminalUtils.moveCursor(x, y + i);
-      const line = lines[i] ?? "";
-      process.stdout.write(line.slice(0, width).padEnd(width));
-    }
-  }
-
-  private renderTerminal(x: number, y: number, width: number, height: number): void {
-    const lines = this.terminal.getLines();
-    const visible = lines.slice(-height);
-    for (let i = 0; i < height; i++) {
-      TerminalUtils.moveCursor(x, y + i);
-      const line = visible[i] ?? "";
-      process.stdout.write(C.gray(line.slice(0, width).padEnd(width)));
-    }
-  }
-
-  private renderStatus(y: number, cols: number): void {
-    TerminalUtils.moveCursor(0, y);
-    const status = C.dim("|");
-    const model =
-      this.modelReachable === true
-        ? C.green(this.model)
-        : this.modelReachable === false
-          ? C.yellow(this.model + C.dim(" · no model"))
-          : C.green(this.model);
-    const step = C.yellow("step " + this.step + "/" + this.maxSteps);
-    const running = this.running ? C.red("running") : C.green("idle");
-    let mode = "";
-    if (this.focus === "extensions") {
-      mode = C.cyan(" [ext] ");
-    } else if (this.focus === "palette") {
-      mode = C.cyan(" [cmd] ");
-    } else if (this.focus === "terminal") {
-      mode = C.yellow(" [term] ");
-    }
-    const statusText = model + " | " + step + " | " + running + mode;
-    process.stdout.write(
-      status + " " + statusText + " ".repeat(Math.max(0, cols - statusText.length - 5)) + C.dim("|")
-    );
-  }
-
-  private renderPalette(): void {
-    const { cols, rows } = TerminalUtils.size;
-    const paletteWidth = Math.min(cols - 4, 60);
-    const paletteHeight = Math.min(15, rows - 6);
-    const paletteX = Math.floor((cols - paletteWidth) / 2);
-    const paletteY = Math.floor((rows - paletteHeight) / 2);
-
-    TerminalUtils.moveCursor(paletteX, paletteY);
-    process.stdout.write(C.dim("+" + "-".repeat(paletteWidth - 2) + "+\n"));
-
-    TerminalUtils.moveCursor(paletteX, paletteY + 1);
-    const queryLine = C.dim("| ") + C.bold(" Command Palette") + C.dim(" -- filter: ") + C.cyan(this.paletteQuery);
-    process.stdout.write(queryLine);
-    process.stdout.write(" ".repeat(Math.max(1, paletteWidth - 2 - queryLine.length - 3)) + C.dim("|\n"));
-
-    const results = this.paletteResults.slice(0, paletteHeight - 3);
-    for (let i = 0; i < results.length; i++) {
-      TerminalUtils.moveCursor(paletteX, paletteY + 3 + i);
-      const item = results[i]!;
-      const prefix = i === this.paletteIndex ? C.green("> ") : "  ";
-      const label = C.bold(item.label);
-      const category = C.gray("[" + item.category + "]");
-      process.stdout.write(C.dim("|") + prefix + label + " " + category);
-      process.stdout.write(" ".repeat(Math.max(1, paletteWidth - 2 - prefix.length - label.length - category.length - 3)) + C.dim("|\n"));
-    }
-
-    for (let i = results.length; i < paletteHeight - 3; i++) {
-      TerminalUtils.moveCursor(paletteX, paletteY + 3 + i);
-      process.stdout.write(C.dim("|" + " ".repeat(paletteWidth - 2) + "|\n"));
-    }
-
-    TerminalUtils.moveCursor(paletteX, paletteY + paletteHeight - 1);
-    process.stdout.write(C.dim("+" + "-".repeat(paletteWidth - 2) + "+"));
+    const status =
+      (this.modelReachable === false ? C.yellow(this.model + " · no model") : C.green(this.model)) +
+      (this.running ? C.red(" · running") : "");
+    process.stdout.write(status.slice(0, cols - 1));
   }
 }
